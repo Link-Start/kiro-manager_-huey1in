@@ -111,6 +111,10 @@ class AccountStore {
     this.saveSettings()
     this.notify()
   }
+
+  notifyAccountsChanged() {
+    this.notify()
+  }
   
   // 隐藏邮箱
   maskEmail(email: string): string {

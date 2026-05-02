@@ -152,6 +152,97 @@ html.dark .ui-btn-icon.delete:hover {
   background: var(--warning);
 }
 
+/* 底部悬浮进度 */
+.floating-progress-root {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  z-index: 2200;
+  display: flex;
+  width: min(420px, calc(100vw - 32px));
+  flex-direction: column;
+  gap: 8px;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.floating-progress-card {
+  padding: 12px 14px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-sidebar);
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.16);
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.floating-progress-card.is-hiding {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+.floating-progress-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 8px;
+}
+
+.floating-progress-title {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-main);
+  font-size: 13px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.floating-progress-percent {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.floating-progress-track {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--slate-200);
+}
+
+.floating-progress-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--primary);
+  transition: width 0.25s ease, background 0.2s ease;
+}
+
+.floating-progress-fill[data-status="success"] {
+  background: var(--success);
+}
+
+.floating-progress-fill[data-status="warning"] {
+  background: var(--warning);
+}
+
+.floating-progress-fill[data-status="error"] {
+  background: var(--danger);
+}
+
+.floating-progress-detail {
+  margin-top: 8px;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* 文本样式 */
 .usage-percent.warning,
 .ui-text-warning {

@@ -30,6 +30,7 @@ export function renderFilterPanel(): string {
     { value: 'active', label: '正常', count: stats.byStatus.active },
     { value: 'expired', label: '已过期', count: stats.byStatus.expired },
     { value: 'error', label: '错误', count: stats.byStatus.error },
+    { value: 'suspended', label: '已封禁', count: stats.byStatus.suspended },
     { value: 'unknown', label: '未知', count: stats.byStatus.unknown }
   ]
 

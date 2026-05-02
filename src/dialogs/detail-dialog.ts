@@ -125,7 +125,7 @@ export function showAccountDetailDialog(account: Account): void {
       <button class="ui-btn ui-btn-secondary ui-btn-sm" onclick="window.copyAccountJson()">复制数据</button>
       <button class="ui-btn ui-btn-primary ui-btn-sm" onclick="window.closeAccountDetailModal()">确定</button>
     `,
-    size: isSuspended ? 'lg' : 'default',
+    size: 'xl',
     closable: true
   })
 

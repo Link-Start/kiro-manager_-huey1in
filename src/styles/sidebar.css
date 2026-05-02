@@ -80,6 +80,52 @@
   border-top: 1px solid var(--border-color);
 }
 
+.sidebar-footer-tools {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  margin-bottom: 10px;
+}
+
+.sidebar-theme-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--slate-50);
+  cursor: pointer;
+  color: var(--text-muted);
+  padding: 0;
+}
+
+.sidebar-theme-icon {
+  transition: opacity 0.2s, transform 0.2s;
+}
+
+.sidebar-theme-icon-sun {
+  opacity: 1;
+  transform: scale(1) rotate(0deg);
+}
+
+.sidebar-theme-icon-moon {
+  position: absolute;
+  opacity: 0;
+  transform: scale(0.7) rotate(-20deg);
+}
+
+html.dark .sidebar-theme-icon-sun {
+  opacity: 0;
+  transform: scale(0.7) rotate(20deg);
+}
+
+html.dark .sidebar-theme-icon-moon {
+  opacity: 1;
+  transform: scale(1) rotate(0deg);
+}
+
 .current-account-card {
   background: var(--slate-50);
   border: 1px solid var(--border-color);

@@ -1,24 +1,27 @@
 // 账号操作模块
 import type { Account } from '../types'
 import { accountStore } from '../store'
+import { openFloatingProgress } from '../utils/floating-progress'
 
 /**
  * 刷新账号信息
  */
-export async function refreshAccount(account: Account): Promise<void> {
+export async function refreshAccount(account: Account, silent: boolean = false): Promise<void> {
   if (!account.credentials.refreshToken || !account.credentials.clientId || !account.credentials.clientSecret) {
-    window.UI?.toast.error('账号缺少刷新凭证')
+    if (!silent) window.UI?.toast.error('账号缺少刷新凭证')
     throw new Error('账号缺少刷新凭证')
   }
 
-  window.UI?.toast.info(`正在刷新账号: ${account.email}`)
+  if (!silent) window.UI?.toast.info(`正在刷新账号: ${account.email}`)
 
   try {
     const result = await (window as any).__TAURI__.core.invoke('verify_account_credentials', {
       refreshToken: account.credentials.refreshToken,
       clientId: account.credentials.clientId,
       clientSecret: account.credentials.clientSecret,
-      region: account.credentials.region || 'us-east-1'
+      region: account.credentials.region || 'us-east-1',
+      authMethod: account.credentials.authMethod || 'IdC',
+      provider: account.credentials.provider || account.idp
     })
 
     if (result.success && result.data) {
@@ -59,7 +62,7 @@ export async function refreshAccount(account: Account): Promise<void> {
         lastUsedAt: now
       })
 
-      window.UI?.toast.success('账号刷新成功')
+      if (!silent) window.UI?.toast.success('账号刷新成功')
     } else {
       // 根据错误类型设置状态
       const errorMsg = result.error || '刷新失败'
@@ -103,7 +106,9 @@ export async function refreshTokenOnly(account: Account): Promise<void> {
       refreshToken: account.credentials.refreshToken,
       clientId: account.credentials.clientId,
       clientSecret: account.credentials.clientSecret,
-      region: account.credentials.region || 'us-east-1'
+      region: account.credentials.region || 'us-east-1',
+      authMethod: account.credentials.authMethod || 'IdC',
+      provider: account.credentials.provider || account.idp
     })
 
     if (result.success && result.data) {
@@ -217,29 +222,31 @@ export async function handleBatchCheck(selectedIds: Set<string>): Promise<void> 
     return
   }
 
-  // 限制批量操作数量
-  if (selectedAccounts.length > 50) {
-    window.UI?.toast.error('批量检查最多支持 50 个账号')
-    return
-  }
 
   window.UI?.toast.info(`正在检查 ${selectedAccounts.length} 个账号状态...`)
 
   let successCount = 0
   let failedCount = 0
+  let completedCount = 0
+  const checkProgress = openFloatingProgress({
+    id: 'batch-check',
+    title: '正在检查账号状态',
+    total: selectedAccounts.length,
+    detail: `0/${selectedAccounts.length} 已完成`
+  })
 
-  // 并发控制：每次最多5个并发请求
-  const batchSize = 5
+  // 并发控制：每次最多10个并发请求（后端 ListAvailableModels + GetUsageLimits 已并发）
+  const batchSize = 10
   for (let i = 0; i < selectedAccounts.length; i += batchSize) {
     const batch = selectedAccounts.slice(i, i + batchSize)
     await Promise.all(batch.map(async (account) => {
-      if (!account.credentials.refreshToken || !account.credentials.clientId || !account.credentials.clientSecret) {
-        failedCount++
-        accountStore.updateAccount(account.id, { status: 'error', lastError: '缺少凭证信息' })
-        return
-      }
-
       try {
+        if (!account.credentials.refreshToken || !account.credentials.clientId || !account.credentials.clientSecret) {
+          failedCount++
+          accountStore.updateAccount(account.id, { status: 'error', lastError: '缺少凭证信息' })
+          return
+        }
+
         // 只验证凭证是否有效，不更新详细信息
         const result = await (window as any).__TAURI__.core.invoke('verify_account_credentials', {
           refreshToken: account.credentials.refreshToken,
@@ -284,15 +291,26 @@ export async function handleBatchCheck(selectedIds: Set<string>): Promise<void> 
           lastError: (error as Error).message
         })
         failedCount++
+      } finally {
+        completedCount++
+        checkProgress.update({
+          completed: completedCount,
+          total: selectedAccounts.length,
+          detail: `正常 ${successCount} 个，异常 ${failedCount} 个`
+        })
       }
     }))
   }
 
   if (failedCount === 0) {
+    checkProgress.finish(`检查完成：${successCount} 个账号状态正常`, 'success')
     window.UI?.toast.success(`检查完成：${successCount} 个账号状态正常`)
   } else {
+    checkProgress.finish(`检查完成：${successCount} 个正常，${failedCount} 个异常`, 'warning')
     window.UI?.toast.warning(`检查完成：${successCount} 个正常，${failedCount} 个异常`)
   }
+
+  accountStore.notifyAccountsChanged()
 }
 
 /**
@@ -306,36 +324,49 @@ export async function handleBatchRefresh(selectedIds: Set<string>): Promise<void
     return
   }
 
-  // 限制批量操作数量
-  if (selectedAccounts.length > 50) {
-    window.UI?.toast.error('批量刷新最多支持 50 个账号')
-    return
-  }
 
   window.UI?.toast.info(`正在刷新 ${selectedAccounts.length} 个账号...`)
 
   let successCount = 0
   let failedCount = 0
+  let completedCount = 0
+  const refreshProgress = openFloatingProgress({
+    id: 'batch-refresh',
+    title: '正在刷新账号',
+    total: selectedAccounts.length,
+    detail: `0/${selectedAccounts.length} 已完成`
+  })
 
-  // 并发控制：每次最多3个并发请求（刷新操作更重）
-  const batchSize = 3
+  // 并发控制：每次最多10个并发请求
+  const batchSize = 10
   for (let i = 0; i < selectedAccounts.length; i += batchSize) {
     const batch = selectedAccounts.slice(i, i + batchSize)
     await Promise.all(batch.map(async (account) => {
       try {
-        await refreshAccount(account)
+        await refreshAccount(account, true)
         successCount++
       } catch (error) {
         failedCount++
+      } finally {
+        completedCount++
+        refreshProgress.update({
+          completed: completedCount,
+          total: selectedAccounts.length,
+          detail: `成功 ${successCount} 个，失败 ${failedCount} 个`
+        })
       }
     }))
   }
 
   if (failedCount === 0) {
+    refreshProgress.finish(`刷新完成：${successCount} 个账号已更新`, 'success')
     window.UI?.toast.success(`刷新完成：${successCount} 个账号已更新`)
   } else {
+    refreshProgress.finish(`刷新完成：${successCount} 个成功，${failedCount} 个失败`, 'warning')
     window.UI?.toast.warning(`刷新完成：${successCount} 个成功，${failedCount} 个失败`)
   }
+
+  accountStore.notifyAccountsChanged()
 }
 
 /**

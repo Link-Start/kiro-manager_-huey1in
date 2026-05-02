@@ -39,7 +39,7 @@ export function showModelsDialog(account: Account) {
       <button class="ui-btn ui-btn-secondary ui-btn-sm" onclick="window.refreshModels()">刷新</button>
       <button class="ui-btn ui-btn-primary ui-btn-sm" onclick="window.closeModelsModal()">关闭</button>
     `,
-    size: 'lg',
+    size: 'xl',
     closable: true
   })
 

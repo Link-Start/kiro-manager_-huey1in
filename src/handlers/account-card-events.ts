@@ -3,29 +3,26 @@ export function attachAccountCardEvents(
   onToggleSelection: (accountId: string) => void,
   onAccountAction: (accountId: string, action: string) => void
 ) {
-  // 处理卡片视图和列表视图
-  const accountItems = container.querySelectorAll('.account-card, .account-list-item')
-  accountItems.forEach(item => {
-    const accountId = (item as HTMLElement).dataset.accountId
-    if (!accountId) return
+  const boundContainer = container as HTMLElement & { dataset: DOMStringMap }
+  if (boundContainer.dataset.accountCardEventsBound === 'true') return
+  boundContainer.dataset.accountCardEventsBound = 'true'
 
-    const checkbox = item.querySelector('[data-action="toggle-select"]')
-    if (checkbox) {
-      checkbox.addEventListener('click', (e) => {
-        e.stopPropagation()
-        onToggleSelection(accountId)
-      })
+  container.addEventListener('click', (e) => {
+    const target = e.target as HTMLElement | null
+    const actionElement = target?.closest('[data-action]') as HTMLElement | null
+    if (!actionElement || !container.contains(actionElement)) return
+
+    const item = actionElement.closest('.account-card, .account-list-item') as HTMLElement | null
+    const accountId = item?.dataset.accountId
+    const action = actionElement.dataset.action
+    if (!accountId || !action) return
+
+    e.stopPropagation()
+    if (action === 'toggle-select') {
+      onToggleSelection(accountId)
+      return
     }
 
-    const actions = item.querySelectorAll('[data-action]')
-    actions.forEach(btn => {
-      const action = (btn as HTMLElement).dataset.action
-      if (action && action !== 'toggle-select') {
-        btn.addEventListener('click', (e) => {
-          e.stopPropagation()
-          onAccountAction(accountId, action)
-        })
-      }
-    })
+    onAccountAction(accountId, action)
   })
 }

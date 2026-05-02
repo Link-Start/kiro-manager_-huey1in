@@ -16,7 +16,8 @@
 
 .models-dialog-content {
   max-width: 100%;
-  max-height: 300px;
+  width: min(920px, calc(100vw - 96px));
+  max-height: min(660px, calc(100vh - 160px));
   overflow-y: auto;
   overflow-x: hidden;
   padding-bottom: 16px;
@@ -97,19 +98,29 @@
 /* 模型列表 */
 .models-list {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
   width: 100%;
 }
 
 .model-item {
   background: var(--bg-sidebar);
   border: 1px solid var(--border-color);
-  border-radius: 8px;
-  padding: 10px;
+  border-radius: 12px;
+  padding: 12px;
   transition: all 0.2s;
   min-width: 0;
   overflow: hidden;
+}
+
+@media (max-width: 1000px) {
+  .models-dialog-content {
+    width: min(720px, calc(100vw - 56px));
+  }
+
+  .models-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 .model-item:hover {

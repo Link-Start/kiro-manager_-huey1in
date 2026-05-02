@@ -208,6 +208,17 @@ export class AccountManager {
             </button>
           </nav>
           <div class="sidebar-footer">
+            <div class="sidebar-footer-tools">
+              <button class="sidebar-theme-button" id="sidebar-theme-switch" title="切换深色模式" aria-label="切换深色模式">
+                <svg class="sidebar-theme-icon sidebar-theme-icon-sun" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="4"></circle>
+                  <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"></path>
+                </svg>
+                <svg class="sidebar-theme-icon sidebar-theme-icon-moon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+                </svg>
+              </button>
+            </div>
             <div class="current-account-card" id="current-account-card">
               <div class="current-account-loading">加载中...</div>
             </div>
@@ -220,6 +231,7 @@ export class AccountManager {
     `
 
     this.attachTitlebarEvents()
+    this.attachSidebarThemeEvents()
     this.renderContent()
     // DOM 渲染完成后更新当前账号显示
     this.updateCurrentAccountDisplay()
@@ -227,6 +239,39 @@ export class AccountManager {
 
   private attachTitlebarEvents() {
     attachTitlebarEvents(this.container, () => this.renderContent())
+  }
+
+  private attachSidebarThemeEvents() {
+    const themeButton = this.container.querySelector('#sidebar-theme-switch') as HTMLButtonElement | null
+    if (!themeButton) return
+
+    const getCurrentTheme = () => {
+      if (window.UI?.theme?.get) return window.UI.theme.get()
+      return document.documentElement.classList.contains('dark') ? 'dark' : 'light'
+    }
+
+    const syncThemeButton = () => {
+      const isDark = getCurrentTheme() === 'dark'
+      themeButton.classList.toggle('is-dark', isDark)
+      themeButton.title = isDark ? '切换浅色模式' : '切换深色模式'
+      themeButton.setAttribute('aria-label', themeButton.title)
+    }
+
+    syncThemeButton()
+    themeButton.addEventListener('click', () => {
+      if (window.UI?.theme?.toggle) {
+        window.UI.theme.toggle()
+      } else {
+        const nextDark = !document.documentElement.classList.contains('dark')
+        document.documentElement.classList.toggle('dark', nextDark)
+        localStorage.setItem('ui-theme', nextDark ? 'dark' : 'light')
+      }
+
+      const isDark = getCurrentTheme() === 'dark'
+      syncThemeButton()
+      const settingsThemeSwitch = document.querySelector('#theme-switch') as HTMLInputElement | null
+      if (settingsThemeSwitch) settingsThemeSwitch.checked = isDark
+    })
   }
 
   private renderContent() {
