@@ -1,6 +1,23 @@
 // 账号验证模块
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::sync::OnceLock;
+use std::time::Duration;
+
+/// 全局共享的 HTTP 客户端，复用 TCP/TLS 连接，避免每次请求都重建连接
+fn http_client() -> &'static reqwest::Client {
+    static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+    CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .pool_max_idle_per_host(64)
+            .pool_idle_timeout(Duration::from_secs(90))
+            .timeout(Duration::from_secs(30))
+            .connect_timeout(Duration::from_secs(10))
+            .tcp_nodelay(true)
+            .build()
+            .expect("Failed to create HTTP client")
+    })
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct VerifyCredentialsResponse {
@@ -143,9 +160,12 @@ pub async fn verify_account_credentials(
     
     // 步骤 1: 使用 refresh_token 获取 access_token
     let oidc_url = format!("https://oidc.{}.amazonaws.com/token", region);
+    // 备用 URL: sso-oidc 端点
+    let sso_oidc_url = format!("https://sso-oidc.{}.amazonaws.com/token", region);
     println!("[验证] OIDC URL: {}", oidc_url);
+    println!("[验证] SSO-OIDC URL (备用): {}", sso_oidc_url);
     
-    let client = reqwest::Client::new();
+    let client = http_client();
     
     let oidc_payload = json!({
         "clientId": client_id,
@@ -154,14 +174,30 @@ pub async fn verify_account_credentials(
         "grantType": "refresh_token"
     });
     
+    // 先尝试 oidc 端点，失败则回退到 sso-oidc 端点
     println!("[验证] 发送 OIDC 请求...");
-    let oidc_response = client
-        .post(&oidc_url)
-        .header("Content-Type", "application/json")
-        .json(&oidc_payload)
-        .send()
-        .await
-        .map_err(|e| format!("OIDC 请求失败: {}", e))?;
+    let oidc_response = {
+        let resp = client
+            .post(&oidc_url)
+            .header("Content-Type", "application/json")
+            .json(&oidc_payload)
+            .send()
+            .await;
+        
+        match resp {
+            Ok(r) if r.status().is_success() => r,
+            _ => {
+                println!("[验证] 主 OIDC 端点失败，尝试 sso-oidc 备用端点...");
+                client
+                    .post(&sso_oidc_url)
+                    .header("Content-Type", "application/json")
+                    .json(&oidc_payload)
+                    .send()
+                    .await
+                    .map_err(|e| format!("OIDC 请求失败: {}", e))?
+            }
+        }
+    };
     
     println!("[验证] OIDC 响应状态: {}", oidc_response.status());
     
@@ -196,24 +232,103 @@ pub async fn verify_account_credentials(
     };
     
     println!("[验证] API Base: {}", api_base);
-    
-    // 调用 GetUsageLimits API
+
+    // 步骤 2: 并发发起 ListAvailableModels（封号检测）+ GetUsageLimits（用量数据）
+    // 两个接口都用同一份 access_token，用 tokio::join! 并发执行可省去一次 RTT
+    let models_url = format!("{}/ListAvailableModels?origin=AI_EDITOR", api_base);
     let usage_url = format!(
         "{}/getUsageLimits?origin=AI_EDITOR&resourceType=AGENTIC_REQUEST&isEmailRequired=true",
         api_base
     );
-    
-    println!("[验证] 发送 GetUsageLimits 请求...");
-    let usage_response = client
+    let bearer = format!("Bearer {}", access_token);
+    let user_agent = "aws-sdk-rust/1.3.9 os/windows lang/rust/1.87.0";
+    let x_amz_ua = "aws-sdk-rust/1.3.9 ua/2.1 api/ssooidc/1.88.0 os/windows lang/rust/1.87.0 m/E app/KiroManager";
+
+    println!("[验证] 并发发送 ListAvailableModels + GetUsageLimits 请求...");
+
+    let models_future = client
+        .get(&models_url)
+        .header("Accept", "application/json")
+        .header("Authorization", &bearer)
+        .header("User-Agent", user_agent)
+        .header("x-amz-user-agent", x_amz_ua)
+        .send();
+
+    let usage_future = client
         .get(&usage_url)
         .header("Accept", "application/json")
-        .header("Authorization", format!("Bearer {}", access_token))
-        .header("User-Agent", "aws-sdk-rust/1.3.9 os/windows lang/rust/1.87.0")
-        .header("x-amz-user-agent", "aws-sdk-rust/1.3.9 ua/2.1 api/ssooidc/1.88.0 os/windows lang/rust/1.87.0 m/E app/KiroManager")
-        .send()
-        .await
-        .map_err(|e| format!("获取使用量失败: {}", e))?;
-    
+        .header("Authorization", &bearer)
+        .header("User-Agent", user_agent)
+        .header("x-amz-user-agent", x_amz_ua)
+        .send();
+
+    let (models_resp, usage_resp) = tokio::join!(models_future, usage_future);
+
+    // 处理 ListAvailableModels：封号检测
+    if let Ok(resp) = models_resp {
+        let status = resp.status();
+        println!("[验证] ListAvailableModels 响应状态: {}", status);
+
+        if status.as_u16() == 403 {
+            let error_text = resp.text().await.unwrap_or_default();
+            println!("[API] ListAvailableModels 403 响应: {}", error_text);
+
+            if let Ok(error_json) = serde_json::from_str::<serde_json::Value>(&error_text) {
+                let reason = error_json.get("reason").and_then(|r| r.as_str());
+                let message = error_json.get("message").and_then(|m| m.as_str());
+
+                let suspended_error = match reason {
+                    Some("TEMPORARILY_SUSPENDED") => Some("账号已被临时封禁".to_string()),
+                    Some("PERMANENTLY_SUSPENDED") => Some("账号已被永久封禁".to_string()),
+                    Some(other) => Some(format!("账号访问受限: {}", other)),
+                    None => message.map(|m| m.to_string()),
+                };
+
+                if let Some(err) = suspended_error {
+                    // 从 message 提取 user_id：格式为 "Your User ID (xxxxxxxx-xxxx-...)"
+                    let extracted_user_id = message
+                        .and_then(|msg| {
+                            let start = msg.find('(')?;
+                            let end = msg[start + 1..].find(')')?;
+                            let id = msg[start + 1..start + 1 + end].trim();
+                            if id.is_empty() { None } else { Some(id.to_string()) }
+                        })
+                        .unwrap_or_default();
+
+                    println!("[验证] 检测到账号被封禁: {} (user_id={})", err, extracted_user_id);
+
+                    // 即使被封禁，仍然返回已获取到的部分数据（access_token / refresh_token / user_id）
+                    // 让前端能把封号账号存进列表，而不是丢弃
+                    return Ok(VerifyCredentialsResponse {
+                        success: false,
+                        data: Some(AccountData {
+                            email: String::new(),
+                            user_id: extracted_user_id,
+                            access_token: access_token.clone(),
+                            refresh_token: new_refresh_token.clone(),
+                            expires_in: Some(expires_in),
+                            subscription_type: "FREE".to_string(),
+                            subscription_title: "KIRO FREE".to_string(),
+                            usage: UsageData {
+                                current: 0.0,
+                                limit: 0.0,
+                                next_reset_date: None,
+                            },
+                            days_remaining: None,
+                            expires_at: None,
+                        }),
+                        error: Some(err),
+                    });
+                }
+            }
+        }
+    } else if let Err(e) = &models_resp {
+        println!("[验证] ListAvailableModels 请求出错（忽略，继续走 usage 流程）: {}", e);
+    }
+
+    // 处理 GetUsageLimits 响应（已并发完成）
+    let usage_response = usage_resp.map_err(|e| format!("获取使用量失败: {}", e))?;
+
     println!("[验证] GetUsageLimits 响应状态: {}", usage_response.status());
     
     if !usage_response.status().is_success() {

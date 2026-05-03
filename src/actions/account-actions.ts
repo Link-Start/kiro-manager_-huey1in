@@ -3,6 +3,16 @@ import type { Account } from '../types'
 import { accountStore } from '../store'
 import { openFloatingProgress } from '../utils/floating-progress'
 
+function isSuspendedError(message: string): boolean {
+  const normalized = message.toLowerCase()
+  return (
+    message.includes('封禁') ||
+    message.includes('暂停') ||
+    normalized.includes('suspended') ||
+    normalized.includes('access_denied')
+  )
+}
+
 /**
  * 刷新账号信息
  */
@@ -63,10 +73,10 @@ export async function refreshAccount(account: Account, silent: boolean = false):
       })
 
       if (!silent) window.UI?.toast.success('账号刷新成功')
-    } else {
-      // 根据错误类型设置状态
-      const errorMsg = result.error || '刷新失败'
-      const isSuspended = errorMsg.includes('封禁') || errorMsg.includes('suspended')
+      } else {
+        // 根据错误类型设置状态
+        const errorMsg = result.error || '刷新失败'
+        const isSuspended = isSuspendedError(errorMsg)
 
       accountStore.updateAccount(account.id, {
         status: isSuspended ? 'suspended' : 'error',
@@ -126,7 +136,7 @@ export async function refreshTokenOnly(account: Account): Promise<void> {
       })
     } else {
       const errorMsg = result.error || '刷新失败'
-      const isSuspended = errorMsg.includes('封禁') || errorMsg.includes('suspended')
+      const isSuspended = isSuspendedError(errorMsg)
 
       accountStore.updateAccount(account.id, {
         status: isSuspended ? 'suspended' : 'error',
@@ -265,7 +275,7 @@ export async function handleBatchCheck(selectedIds: Set<string>): Promise<void> 
           successCount++
         } else {
           const errorMsg = result.error || '验证失败'
-          const isSuspended = errorMsg.includes('封禁') || errorMsg.includes('suspended')
+          const isSuspended = isSuspendedError(errorMsg)
 
           accountStore.updateAccount(account.id, {
             status: isSuspended ? 'suspended' : 'error',
